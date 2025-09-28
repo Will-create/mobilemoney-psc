@@ -39,13 +39,13 @@ export default function HistoryScreen() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'success':
-        return <CheckCircle size={16} color="#28a745" />;
+        return <CheckCircle size={14} color="#28a745" />;
       case 'failed':
-        return <XCircle size={16} color="#dc3545" />;
+        return <XCircle size={14} color="#dc3545" />;
       case 'cancelled':
-        return <XCircle size={16} color="#6c757d" />;
+        return <XCircle size={14} color="#6c757d" />;
       default:
-        return <Clock size={16} color="#ffc107" />;
+        return <Clock size={14} color="#ffc107" />;
     }
   };
 
@@ -70,9 +70,9 @@ export default function HistoryScreen() {
         <View style={styles.transactionHeader}>
           <View style={styles.transactionIcon}>
             {isOutgoing ? (
-              <ArrowUpRight size={20} color="#dc3545" />
+              <ArrowUpRight size={18} color="#dc3545" />
             ) : (
-              <ArrowDownLeft size={20} color="#28a745" />
+              <ArrowDownLeft size={18} color="#28a745" />
             )}
           </View>
           
@@ -148,23 +148,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
-    paddingTop: 40,
+    paddingTop: 30,
   },
   header: {
-    padding: 20,
+    padding: 15,
     alignItems: 'center',
     backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
   title: {
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#111',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#666',
   },
   loadingContainer: {
@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
   },
   emptyContainer: {
@@ -183,24 +183,24 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#666',
     marginBottom: 8,
   },
   emptySubtext: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#999',
     textAlign: 'center',
   },
   listContainer: {
-    padding: 20,
+    padding: 15,
   },
   transactionItem: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#eee',
     elevation: 2,
@@ -212,46 +212,46 @@ const styles = StyleSheet.create({
   transactionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   transactionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#f8f9fa',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: 12,
   },
   transactionInfo: {
     flex: 1,
   },
   transactionAmount: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
   },
   transactionOperator: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
-    marginTop: 4,
+    marginTop: 3,
   },
   transactionStatus: {
     marginLeft: 8,
   },
   transactionDetails: {
-    marginLeft: 64,
-    paddingTop: 8,
+    marginLeft: 52,
+    paddingTop: 6,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
   },
   transactionType: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   transactionDate: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#999',
   },
 });

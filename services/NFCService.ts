@@ -2,6 +2,8 @@ import { Platform } from 'react-native';
 import NfcManager, { NfcTech, Ndef } from 'react-native-nfc-manager';
 import { NFCPayload } from '@/types';
 import { CryptoService } from './CryptoService';
+import pako from 'pako';
+import { Buffer } from 'buffer';
 
 console.log('NFCService: NfcManager at top level:', NfcManager);
 console.log('NFCService: Platform at top level:', Platform);
@@ -48,11 +50,59 @@ export class NFCService {
       await NfcManager.start();
       return true;
     } catch (error) {
-      console.error('Failed to initialize NFC:', error);
+      if (error) {
+        console.warn('Failed to initialize NFC:', error);
+      } else {
+        console.warn('Failed to initialize NFC: Unknown error (error object was null).');
+      }
       this.isSupported = false;
       return false;
     } finally {
       this.isInitialized = true;
+    }
+  }
+
+  private createPayloadString(payload: NFCPayload): string {
+    return [
+      payload.version,
+      payload.transactionId,
+      payload.amount,
+      payload.currency,
+      payload.operator,
+      payload.senderId,
+      payload.receiverHint,
+      payload.timestamp,
+      payload.meta.note || '',
+      payload.sig,
+      payload.phone_number,
+    ].join('|');
+  }
+
+  private parsePayload(data: string): NFCPayload | null {
+    try {
+      const parts = data.split('|');
+      if (parts.length < 11) {
+        return null;
+      }
+      const payload: NFCPayload = {
+        version: parts[0],
+        transactionId: parts[1],
+        amount: parseFloat(parts[2]),
+        currency: parts[3],
+        operator: parts[4],
+        senderId: parts[5],
+        receiverHint: parts[6],
+        timestamp: parseInt(parts[7], 10),
+        meta: {
+          note: parts[8],
+        },
+        sig: parts[9],
+        phone_number: parts[10],
+      };
+      return payload;
+    } catch (error) {
+      console.error('Failed to parse payload:', error);
+      return null;
     }
   }
 
@@ -62,6 +112,7 @@ export class NFCService {
     senderId: string,
     receiverHint: string,
     keyId: string,
+    phone_number: string,
     note?: string
   ): Promise<NFCPayload> {
     const payload = {
@@ -76,7 +127,8 @@ export class NFCService {
       meta: {
         note: note || ''
       },
-      sig: '' // Will be filled by signing
+      sig: '', // Will be filled by signing
+      phone_number,
     };
 
     // Sign the payload
@@ -89,8 +141,11 @@ export class NFCService {
   async sendPayload(payload: NFCPayload): Promise<boolean> {
     try {
       // Create NDEF message
-      const jsonString = JSON.stringify(payload);
-      const ndefRecord = Ndef.textRecord(jsonString);
+      const payloadString = this.createPayloadString(payload);
+      const compressed = pako.deflate(payloadString);
+      const encoded = Buffer.from(compressed).toString('base64');
+
+      const ndefRecord = Ndef.textRecord(encoded);
       const ndefMessage = [ndefRecord];
 
       // Start NFC writing session
@@ -115,20 +170,26 @@ export class NFCService {
         if (tag.ndefMessage) {
           const ndefRecord = tag.ndefMessage[0];
           if (ndefRecord?.payload) {
-            const jsonString = Ndef.text.decodePayload(ndefRecord.payload);
-            const payload = JSON.parse(jsonString) as NFCPayload;
+            const encoded = Ndef.text.decodePayload(ndefRecord.payload);
+            const decoded = Buffer.from(encoded, 'base64');
+            const decompressed = pako.inflate(decoded, { to: 'string' });
+            const payload = this.parsePayload(decompressed);
             
-            // Verify signature
-            const isValid = await this.cryptoService.verifySignature(
-              payload,
-              payload.sig,
-              payload.senderId
-            );
-            
-            if (isValid) {
-              onPayloadReceived(payload);
+            if (payload) {
+              // Verify signature
+              const isValid = await this.cryptoService.verifySignature(
+                payload,
+                payload.sig,
+                payload.senderId
+              );
+              
+              if (isValid) {
+                onPayloadReceived(payload);
+              } else {
+                onError(new Error('Invalid payload signature'));
+              }
             } else {
-              onError(new Error('Invalid payload signature'));
+              onError(new Error('Failed to parse payload'));
             }
           }
         }
@@ -152,8 +213,11 @@ export class NFCService {
 
   async startHCEService(payload: NFCPayload): Promise<boolean> {
     try {
-      const jsonString = JSON.stringify(payload);
-      const ndefRecord = Ndef.textRecord(jsonString);
+      const payloadString = this.createPayloadString(payload);
+      const compressed = pako.deflate(payloadString);
+      const encoded = Buffer.from(compressed).toString('base64');
+
+      const ndefRecord = Ndef.textRecord(encoded);
       const ndefMessage = [ndefRecord];
       const bytes = Ndef.encodeMessage(ndefMessage);
 

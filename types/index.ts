@@ -1,7 +1,7 @@
 export interface UserProfile {
   userId: string;
   displayName: string;
-  phoneNumber?: string;
+  phoneNumbers: { [key: string]: string };
   operatorPreferences: {
     defaultOperator: string;
   };
@@ -40,6 +40,7 @@ export interface NFCPayload {
     note?: string;
   };
   sig: string;
+  phone_number: string;
 }
 
 export interface OperatorConfig {

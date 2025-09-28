@@ -1,6 +1,5 @@
-import { Platform } from 'react-native';
-import Ussd from 'react-native-ussd';
-import { OPERATORS } from '@/data/operators';
+import Ussd, { ussdEventEmitter, SimInfo, DialOptions } from 'react-native-ussd';
+import { PermissionsAndroid, Platform } from 'react-native';
 
 export class USSDService {
   private static instance: USSDService;
@@ -12,37 +11,73 @@ export class USSDService {
     return USSDService.instance;
   }
 
-  async execute(operatorName: string, recipient: string, amount: string, pin: string, subscriptionId?: number): Promise<{ success: boolean; message: string }> {
-    const operator = OPERATORS.find(op => op.name === operatorName);
-
-    if (!operator) {
-      return { success: false, message: 'Operator not found' };
+  async getSimInfo(): Promise<SimInfo[]> {
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
+        {
+          title: 'SIM Info Permission',
+          message: 'This app needs access to your phone state to read SIM information.',
+          buttonNeutral: 'Ask Me Later',
+          buttonNegative: 'Cancel',
+          buttonPositive: 'OK',
+        },
+      );
+      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        console.log('READ_PHONE_STATE permission denied');
+        return [];
+      }
     }
 
-    const ussdString = operator.ussdTemplate
-      .replace('{recipient}', recipient)
-      .replace('{amount}', amount)
-      .replace('{PIN}', pin);
-
     try {
-      if (Platform.OS === 'android') {
-        await Ussd.dial(ussdString, { subscriptionId });
-        return { success: true, message: 'USSD session initiated' };
+      const sims: SimInfo[] = await Ussd.getSimInfo();
+      if (sims.length > 0) {
+        console.log('Available SIMs:', sims);
       } else {
-        // iOS still uses the old method
-        await Ussd.dial(ussdString);
-        return { success: true, message: 'Please dial manually from the call screen.' };
+        console.log('No SIMs found or accessible.');
       }
+      return sims;
     } catch (error) {
-      console.error('USSD execution failed:', error);
-      return { success: false, message: (error as Error).message };
+      console.error('Error getting SIM info:', error);
+      return [];
     }
   }
 
-  async getSimInfo() {
+  async dial(ussd: string, selectedSubscriptionId?: number) {
     if (Platform.OS === 'android') {
-      return await Ussd.getSimInfo();
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.CALL_PHONE,
+        {
+          title: 'Call Permission',
+          message: 'This app needs to make calls to run USSD codes.',
+          buttonPositive: 'OK',
+          buttonNegative: 'Cancel',
+        },
+      );
+      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        console.log('CALL_PHONE permission denied');
+        return;
+      }
     }
-    return [];
+
+    const options: DialOptions = {};
+    if (selectedSubscriptionId !== undefined && Platform.OS === 'android') {
+      options.subscriptionId = selectedSubscriptionId;
+    }
+
+    try {
+      await Ussd.dial(ussd, options);
+      console.log(`USSD dial initiated for ${ussd} with options:`, options);
+    } catch (error) {
+      console.error('Error dialing USSD:', error);
+    }
+  }
+
+  addUssdEventListener(callback: (event: { ussdReply: string }) => void) {
+    return ussdEventEmitter.addListener('ussdEvent', callback);
+  }
+
+  addUssdErrorEventListener(callback: (event: { error: string, failureCode?: number }) => void) {
+    return ussdEventEmitter.addListener('ussdErrorEvent', callback);
   }
 }

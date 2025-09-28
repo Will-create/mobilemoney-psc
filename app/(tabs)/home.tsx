@@ -7,12 +7,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Button,
+  TextInput,
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Toast from 'react-native-toast-message';
 
-import { Smartphone, Check, X, QrCode } from 'lucide-react-native';
+import { Smartphone, Check, X, QrCode, Nfc } from 'lucide-react-native';
 import { NFCService } from '@/services/NFCService';
 import { StorageService } from '@/services/StorageService';
 import { USSDService } from '@/services/USSDService';
@@ -25,10 +26,11 @@ export default function HomeScreen() {
   const [incomingTransaction, setIncomingTransaction] = useState<NFCPayload | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showAuthPrompt, setShowAuthPrompt] = useState(false);
-  
   const [simMappings, setSimMappings] = useState<{ [key: string]: number }>({});
   const [simInfo, setSimInfo] = useState<SimInfo[]>([]);
   const [selectedSubId, setSelectedSubId] = useState<number | undefined>();
+  const [isNFCSupported, setIsNFCSupported] = useState(false);
+  const [activeTab, setActiveTab] = useState('qr');
 
   const nfcService = NFCService.getInstance();
   const storageService = StorageService.getInstance();
@@ -42,6 +44,15 @@ export default function HomeScreen() {
   };
 
   useEffect(() => {
+    const checkNFCSupport = async () => {
+      const nfcSupported = nfcService.isSupported;
+      setIsNFCSupported(nfcSupported);
+      await storageService.saveData('nfcSupported', nfcSupported.toString());
+    };
+    checkNFCSupport();
+  }, []);
+
+  useEffect(() => {
     if (localSearchParams.scannedData) {
       try {
         const scannedPayload = JSON.parse(localSearchParams.scannedData as string) as NFCPayload;
@@ -53,13 +64,46 @@ export default function HomeScreen() {
     }
   }, [localSearchParams.scannedData]);
 
+  const [ussdCode, setUssdCode] = useState('');
+  const [ussdResponse, setUssdResponse] = useState('');
+
+  useEffect(() => {
+    const ussdEventListener = ussdService.addUssdEventListener(event => {
+      console.log('USSD Event:', event);
+      setUssdResponse(event.ussdReply);
+    });
+
+    const ussdErrorEventListener = ussdService.addUssdErrorEventListener(event => {
+      console.error('USSD Error Event:', event);
+      setUssdResponse(`Error: ${event.error}`);
+    });
+
+    return () => {
+      ussdEventListener.remove();
+      ussdErrorEventListener.remove();
+    };
+  }, []);
+
+  const handleGetSimInfo = async () => {
+    const sims = await ussdService.getSimInfo();
+    setSimInfo(sims);
+  };
+
+  const handleDial = () => {
+    if (ussdCode) {
+      ussdService.dial(ussdCode, selectedSubId);
+    } else {
+      Toast.show({ type: 'error', text1: 'Empty USSD code', text2: 'Please enter a USSD code to dial.' });
+    }
+  };
+
   
 
   useEffect(() => {
     let cleanupNFC: (() => void) | undefined;
 
     const manageNFCListening = () => {
-      if (!nfcService.isSupported) return;
+      if (!isNFCSupported || activeTab !== 'nfc') return;
 
       if (isFocused) {
         setIsListening(true);
@@ -92,7 +136,7 @@ export default function HomeScreen() {
         cleanupNFC();
       }
     };
-  }, [isFocused]);
+  }, [isFocused, isNFCSupported, activeTab]);
 
   const startListening = useCallback(() => {
     // Logic moved to useEffect
@@ -146,20 +190,20 @@ export default function HomeScreen() {
     }
 
     try {
-      const result = await ussdService.execute(
-        incomingTransaction.operator,
-        (incomingTransaction as any).phone_number,
-        incomingTransaction.amount.toString(),
-        pin,
-        selectedSubId
-      );
-      if (result.success) {
-        storageService.logEvent('ussd_dial_success', { operator: incomingTransaction.operator });
-        Toast.show({ type: 'success', text1: 'Transaction Successful', text2: 'The USSD code has been dialed.' });
-      } else {
-        storageService.logEvent('ussd_dial_failure', { operator: incomingTransaction.operator, error: result.message });
-        Toast.show({ type: 'error', text1: 'Transaction Failed', text2: result.message });
+      const operatorConfig = OPERATORS.find(op => op.name === incomingTransaction.operator);
+      if (!operatorConfig) {
+        throw new Error(`Operator ${incomingTransaction.operator} not found`);
       }
+      const ussdCode = operatorConfig.ussdTemplate
+        .replace('{recipient}', (incomingTransaction as any).phone_number)
+        .replace('{amount}', incomingTransaction.amount.toString())
+        .replace('{PIN}', pin);
+
+      await ussdService.dial(ussdCode, selectedSubId);
+      
+      storageService.logEvent('ussd_dial_success', { operator: incomingTransaction.operator });
+      Toast.show({ type: 'success', text1: 'Transaction Successful', text2: 'The USSD code has been dialed.' });
+
     } catch (error) {
         storageService.logEvent('ussd_dial_error', { operator: incomingTransaction.operator, error: (error as Error).message });
         console.error('USSD execution error:', error);
@@ -181,25 +225,75 @@ export default function HomeScreen() {
 
 
 
+
   return (
     <>
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>Ready to Pay</Text>
-          <Text style={styles.subtitle}>Tap via NFC or scan a QR code</Text>
+          <Text style={styles.subtitle}>
+            {isNFCSupported ? 'Scan QR or use NFC to pay' : 'Scan a QR code to pay'}
+          </Text>
         </View>
 
-        <View style={styles.content}>
-          <View style={styles.nfcIndicator}>
-            <Smartphone size={120} color={isListening ? '#FF6600' : '#ccc'} />
-            <Text style={styles.statusText}>
-              {isListening ? 'Scanning for Receiver...' : 'NFC Inactive'}
-            </Text>
+        {isNFCSupported && (
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'qr' && styles.activeTab]}
+              onPress={() => setActiveTab('qr')}
+            >
+              <QrCode size={20} color={activeTab === 'qr' ? '#FF6600' : '#333'} />
+              <Text style={[styles.tabText, activeTab === 'qr' && styles.activeTabText]}>Scan QR</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'nfc' && styles.activeTab]}
+              onPress={() => setActiveTab('nfc')}
+            >
+              <Nfc size={20} color={activeTab === 'nfc' ? '#FF6600' : '#333'} />
+              <Text style={[styles.tabText, activeTab === 'nfc' && styles.activeTabText]}>Connect NFC</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'ussd' && styles.activeTab]}
+              onPress={() => setActiveTab('ussd')}
+            >
+              <Text style={[styles.tabText, activeTab === 'ussd' && styles.activeTabText]}>USSD Test</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.qrButton} onPress={handleScanQRCode}>
-            <QrCode size={24} color="#333" />
-            <Text style={styles.qrButtonText}>Scan QR Code</Text>
-          </TouchableOpacity>
+        )}
+
+        <View style={styles.content}>
+          {activeTab === 'qr' && (
+            <TouchableOpacity style={styles.qrButton} onPress={handleScanQRCode}>
+              <QrCode size={80} color="#333" />
+              <Text style={styles.qrButtonText}>Scan QR Code</Text>
+            </TouchableOpacity>
+          )}
+          {activeTab === 'nfc' && (
+            <View style={styles.nfcIndicator}>
+              <Smartphone size={80} color={isListening ? '#FF6600' : '#ccc'} />
+              <Text style={styles.statusText}>
+                {isListening ? 'Scanning for Receiver...' : 'NFC Inactive'}
+              </Text>
+            </View>
+          )}
+          {activeTab === 'ussd' && (
+            <View style={styles.ussdContainer}>
+              <TextInput
+                style={styles.ussdInput}
+                placeholder="Enter USSD Code"
+                value={ussdCode}
+                onChangeText={setUssdCode}
+              />
+              <Button title="Dial" onPress={handleDial} />
+              <Button title="Get SIM Info" onPress={handleGetSimInfo} />
+              <Text style={styles.ussdResponse}>{ussdResponse}</Text>
+              <View>
+                {simInfo.map(sim => (
+                  <Text key={sim.subscriptionId}>{`SIM ${sim.slotIndex + 1}: ${sim.carrierName}`}</Text>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
       </View>
 
@@ -247,11 +341,11 @@ export default function HomeScreen() {
             )}
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.declineButton} onPress={handleDeclineTransaction}>
-                <X size={20} color="white" />
+                <X size={18} color="white" />
                 <Text style={styles.actionButtonText}>Decline</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.acceptButton} onPress={handleAcceptTransaction}>
-                <Check size={20} color="white" />
+                <Check size={18} color="white" />
                 <Text style={styles.actionButtonText}>Accept & Pay</Text>
               </TouchableOpacity>
             </View>
@@ -277,7 +371,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    paddingTop: 40, // Reduced
+    paddingTop: 30, // Reduced
   },
   header: {
     paddingHorizontal: 20,
@@ -285,14 +379,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 22, // Reduced
+    fontSize: 20, // Reduced
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 4,
   },
   subtitle: {
-    fontSize: 14, // Reduced
+    fontSize: 12, // Reduced
     color: '#666',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginVertical: 10,
+  },
+  tab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    marginHorizontal: 5,
+  },
+  activeTab: {
+    backgroundColor: '#FFF5E6',
+    borderColor: '#FF6600',
+  },
+  tabText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  activeTabText: {
+    color: '#FF6600',
   },
   content: {
     flex: 1,
@@ -302,28 +424,22 @@ const styles = StyleSheet.create({
   },
   nfcIndicator: {
     alignItems: 'center',
-    marginBottom: 20, // Reduced
+    marginBottom: 15, // Reduced
   },
   statusText: {
-    fontSize: 14, // Reduced
+    fontSize: 12, // Reduced
     fontWeight: '600',
-    marginTop: 10, // Reduced
+    marginTop: 8, // Reduced
     textAlign: 'center',
     color: '#666',
   },
   qrButton: {
-    backgroundColor: '#f0f0f0',
-    paddingVertical: 10, // Reduced
-    paddingHorizontal: 20, // Reduced
-    borderRadius: 8, // Reduced
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    gap: 10,
   },
   qrButtonText: {
     color: '#333',
-    fontSize: 14, // Reduced
+    fontSize: 16, // Reduced
     fontWeight: 'bold',
   },
   scannerContainer: {
@@ -339,61 +455,76 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: 'white',
-    borderRadius: 12, // Reduced
-    padding: 15, // Reduced
+    borderRadius: 10, // Reduced
+    padding: 12, // Reduced
     margin: 20,
-    minWidth: 280, // Reduced
+    minWidth: 260, // Reduced
   },
   modalTitle: {
-    fontSize: 18, // Reduced
+    fontSize: 16, // Reduced
     fontWeight: 'bold',
     color: '#333',
     textAlign: 'center',
-    marginBottom: 15, // Reduced
+    marginBottom: 12, // Reduced
   },
   transactionDetails: {
-    marginBottom: 20, // Reduced
+    marginBottom: 18, // Reduced
   },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8, // Reduced
+    marginBottom: 6, // Reduced
   },
   detailLabel: {
-    fontSize: 14, // Reduced
+    fontSize: 12, // Reduced
     color: '#666',
   },
   detailValue: {
-    fontSize: 14, // Reduced
+    fontSize: 12, // Reduced
     fontWeight: '600',
     color: '#333',
   },
   modalActions: {
     flexDirection: 'row',
-    gap: 10, // Reduced
+    gap: 8, // Reduced
   },
   acceptButton: {
     backgroundColor: '#28a745',
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8, gap: 6,
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 6, gap: 5,
   },
   declineButton: {
     backgroundColor: '#dc3545',
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8, gap: 6,
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 6, gap: 5,
   },
   actionButtonText: {
     color: 'white',
-    fontSize: 14, // Reduced
+    fontSize: 12, // Reduced
     fontWeight: '600',
   },
   simSelectionContainer: {
     borderTopWidth: 1,
     borderTopColor: '#eee',
-    marginTop: 15, // Reduced
-    paddingTop: 10, // Reduced
+    marginTop: 12, // Reduced
+    paddingTop: 8, // Reduced
   },
   simOptions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginTop: 8, // Reduced
+    marginTop: 6, // Reduced
+  },
+  ussdContainer: {
+    alignItems: 'center',
+    gap: 10,
+  },
+  ussdInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 10,
+    borderRadius: 5,
+    width: '80%',
+  },
+  ussdResponse: {
+    marginTop: 20,
+    color: '#333',
   },
 });

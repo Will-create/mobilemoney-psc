@@ -12,6 +12,11 @@ export default function TabLayout() {
           backgroundColor: '#fff',
           borderTopWidth: 1,
           borderTopColor: '#eee',
+          height: 60,
+        },
+        tabBarLabelStyle: {
+          fontSize: 10,
+          paddingBottom: 3,
         }
       }}>
       <Tabs.Screen
@@ -23,15 +28,7 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="send"
-        options={{
-          title: 'Send',
-          tabBarIcon: ({ size, color }) => (
-            <ArrowUpRight size={size} color={color} />
-          ),
-        }}
-      />
+
       <Tabs.Screen
         name="receive"
         options={{

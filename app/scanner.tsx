@@ -1,83 +1,160 @@
-import React, { useState, useEffect } from 'react';
-import { Text, View, StyleSheet, Platform, SafeAreaView, StatusBar, Linking, TouchableOpacity } from 'react-native';
-import { CameraView, CameraType } from 'expo-camera';
+import React, { useState } from 'react';
+import { Text, View, StyleSheet, Platform, SafeAreaView, StatusBar, TouchableOpacity } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import { useTailwind } from 'tailwindcss-react-native';
-import { XCircle } from 'lucide-react-native';
+import Toast from 'react-native-toast-message';
+import { NFCPayload } from '@/types';
+
+import pako from 'pako';
+import { Buffer } from 'buffer';
+
+const parsePayload = (data: string): NFCPayload | null => {
+  try {
+    const decoded = Buffer.from(data, 'base64');
+    const decompressed = pako.inflate(decoded, { to: 'string' });
+    const parts = decompressed.split('|');
+    if (parts.length < 11) {
+      return null;
+    }
+    const payload: NFCPayload = {
+      version: parts[0],
+      transactionId: parts[1],
+      amount: parseFloat(parts[2]),
+      currency: parts[3],
+      operator: parts[4],
+      senderId: parts[5],
+      receiverHint: parts[6],
+      timestamp: parseInt(parts[7], 10),
+      meta: {
+        note: parts[8],
+      },
+      sig: parts[9],
+      phone_number: parts[10],
+    };
+    return payload;
+  } catch (error) {
+    console.error('Failed to parse payload:', error);
+    return null;
+  }
+};
+
+const isValidPayload = (payload: NFCPayload | null): payload is NFCPayload => {
+  return (
+    payload &&
+    typeof payload.amount === 'number' &&
+    payload.amount > 0 &&
+    typeof payload.operator === 'string' &&
+    typeof payload.phone_number === 'string'
+  );
+};
 
 export default function QrScan() {
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const router = useRouter();
-  const tw = useTailwind();
-
-  useEffect(() => {
-    const getCameraPermissions = async () => {
-      console.log('getCameraPermissions called');
-      const { status } = await CameraView.requestCameraPermissionsAsync();
-      console.log('Camera permission status:', status);
-      setHasPermission(status === 'granted');
-      console.log('hasPermission after set:', status === 'granted');
-    };
-
-    getCameraPermissions();
-  }, []);
 
   const handleBarCodeScanned = ({ data }: { data: string }) => {
     if (!scanned) {
       setScanned(true);
-      router.replace({ pathname: '/', params: { scannedData: data } });
+      const payload = parsePayload(data);
+      if (isValidPayload(payload)) {
+        Toast.show({ type: 'success', text1: 'QR Code Scanned!', text2: 'Redirecting to payment...' });
+        router.replace({ pathname: '/home', params: { scannedData: JSON.stringify(payload) } });
+      } else {
+        Toast.show({ type: 'error', text1: 'Invalid QR Code', text2: 'The QR code contains invalid data.' });
+        setTimeout(() => setScanned(false), 2000);
+      }
     }
   };
 
-  const openSettings = () => {
-    if (Platform.OS === 'ios') {
-      Linking.openURL('app-settings:');
-    } else {
-      Linking.openSettings();
-    }
-  };
-
-  if (hasPermission === null) {
+  if (!permission) {
+    // Camera permissions are still loading.
     return (
-      <SafeAreaView style={tw('flex-1 justify-center items-center bg-white')}>
+      <SafeAreaView style={styles.container}>
         {Platform.OS === "android" ? <StatusBar hidden /> : null}
-        <Text style={tw('text-lg text-gray-700')}>Requesting for camera permission...</Text>
+        <Text>Requesting for camera permission...</Text>
       </SafeAreaView>
     );
   }
 
-  if (hasPermission === false) {
+  if (!permission.granted) {
+    // Camera permissions are not granted yet.
     return (
-      <SafeAreaView style={tw('flex-1 justify-center items-center bg-white p-4')}>
+      <SafeAreaView style={styles.container}>
         {Platform.OS === "android" ? <StatusBar hidden /> : null}
-        <XCircle size={64} color="#EF4444" style={tw('mb-4')} />
-        <Text style={tw('text-xl font-bold text-red-500 mb-2')}>Camera Access Denied</Text>
-        <Text style={tw('text-base text-gray-600 text-center mb-6')}>
-          Please enable camera access in your device settings to use the QR scanner.
+        <Text style={styles.permissionDeniedText}>Camera Access Denied</Text>
+        <Text style={styles.permissionDeniedSubText}>
+          We need your permission to show the camera.
         </Text>
         <TouchableOpacity
-          onPress={openSettings}
-          style={tw('bg-orange-500 px-6 py-3 rounded-lg')}
+          onPress={requestPermission}
+          style={styles.openSettingsButton}
         >
-          <Text style={tw('text-white text-lg font-semibold')}>Open Settings</Text>
+          <Text style={styles.openSettingsButtonText}>Grant Permission</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={tw('flex-1 bg-black')}>
-      {Platform.OS === "android" ? <StatusBar hidden /> : null}
-      <CameraView
-        style={tw('flex-1')}
-        facing={CameraType.back}
-        barcodeScannerSettings={{
-          barcodeTypes: ["qr"],
-        }}
-        onBarcodeScanned={handleBarCodeScanned}
-      />
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.prompt}>Scan a QR code to pay</Text>
+      <View style={styles.cameraContainer}>
+        <CameraView
+          style={styles.camera}
+          facing={'back'}
+          barcodeScannerSettings={{
+            barcodeTypes: ["qr"],
+          }}
+          onBarcodeScanned={handleBarCodeScanned}
+        />
+      </View>
     </SafeAreaView>
   );
 }
 
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'white',
+  },
+  prompt: {
+    color: 'black',
+    fontSize: 18,
+    marginBottom: 20,
+  },
+  cameraContainer: {
+    width: 300,
+    height: 300,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  camera: {
+    flex: 1,
+  },
+  permissionDeniedText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#EF4444',
+    marginBottom: 8,
+  },
+  permissionDeniedSubText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  openSettingsButton: {
+    backgroundColor: '#FF6600',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  openSettingsButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+});
