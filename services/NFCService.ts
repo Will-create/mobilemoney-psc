@@ -18,6 +18,8 @@ export class NFCService {
     if (!NFCService.instance) {
       NFCService.instance = new NFCService();
     }
+
+    console.log('NFC SERVICE: ', NFCService.instance);
     return NFCService.instance;
   }
 

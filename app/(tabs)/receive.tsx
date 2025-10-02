@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
-import { QrCode, Nfc, XCircle, ChevronDown, Plus } from 'lucide-react-native';
+import { QrCode, Nfc, XCircle, ChevronDown, Plus, AmphoraIcon } from 'lucide-react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { NFCService } from '@/services/NFCService';
 import { StorageService } from '@/services/StorageService';
@@ -39,16 +39,31 @@ export default function ReceiveScreen() {
   useEffect(() => {
     setIsNFCSupported(nfcService.isSupported);
     const loadData = async () => {
-      const profile = await storage.getUserProfile();
-      setUserProfile(profile);
-      if (profile?.phoneNumbers) {
-        const phoneNumbers = Object.values(profile.phoneNumbers);
-        if (phoneNumbers.length > 0) {
-          setSelectedPhoneNumber(phoneNumbers[0]);
-        }
+      let profile = await storage.getUserProfile();
+      if (profile)
+        profile.phoneNumbers['sim1'] = profile?.phoneNumber;
+
+    if (profile && profile?.phoneNumbers) {
+      const phoneNumbers = Object.values(profile.phoneNumbers);
+      if (phoneNumbers.length > 0) {
+        setSelectedPhoneNumber(phoneNumbers[0]);
       }
+
+      console.log('User profile: ', profile);
+      setUserProfile(profile);
+
+    }
       try {
-        const simCards = await SimCardsManagerModule.getSimCards();
+        const simCards = [
+          { 
+            slotIndex: 1,
+            subscriptionId: '833289092909320',
+            carrierName: 'Orange Burkina Faso',
+            phoneNumber: '22656920671'
+          }
+        ];
+        // const simCards = await SimCardsManagerModule.getSimCards();
+        console.log('SIM CARDS: ', simCards);
         // Adapt the new structure to the existing SimInfo type
         const adaptedSims: SimInfo[] = simCards.map((sim: any) => ({
           slotIndex: sim.slotIndex,
@@ -58,7 +73,7 @@ export default function ReceiveScreen() {
         }));
         setSimInfo(adaptedSims);
       } catch (error) {
-        console.error("Failed to get SIM cards", error);
+        console.warn("Failed to get SIM cards", error);
         // Keep simInfo empty or show an error
       }
     };
@@ -262,6 +277,8 @@ export default function ReceiveScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Account</Text>
+            
             {userProfile?.phoneNumbers && Object.values(userProfile.phoneNumbers).map((phone, index) => (
               <TouchableOpacity
                 key={index}
@@ -287,7 +304,7 @@ export default function ReceiveScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add Phone Number</Text>
-            <View style={styles.simSelectorContainer}>
+            <View style={styles.modalContainer}>
               {simInfo.map((sim) => (
                 <TouchableOpacity
                   key={sim.subscriptionId}
@@ -430,6 +447,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 10, // Reduced
+    padding: 18, // Reduced
+    alignItems: 'center',
+    width: '85%',
+  },
   qrModalContent: {
     backgroundColor: 'white',
     borderRadius: 10, // Reduced
@@ -459,6 +483,17 @@ const styles = StyleSheet.create({
     shadowRadius: 3, // Reduced
     elevation: 3,
   },
+  modalContainer: {
+    marginBottom: 18, // Reduced
+    padding: 8, // Reduced
+    backgroundColor: 'white',
+    borderRadius: 6, // Reduced
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 }, // Reduced
+    shadowOpacity: 0.1,
+    shadowRadius: 3, // Reduced
+    elevation: 3,
+  },
   closeButton: {
     backgroundColor: '#f0f0f0',
     paddingVertical: 8, // Reduced
@@ -478,5 +513,24 @@ const styles = StyleSheet.create({
   phoneModalText: {
     fontSize: 16,
     textAlign: 'center',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 15,
+    fontSize: 16,
+  },
+  saveButton: {
+    backgroundColor: '#FF6600',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

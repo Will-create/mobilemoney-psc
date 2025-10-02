@@ -33,7 +33,7 @@ const parsePayload = (data: string): NFCPayload | null => {
     };
     return payload;
   } catch (error) {
-    console.error('Failed to parse payload:', error);
+    console.warn('Failed to parse payload:', error);
     return null;
   }
 };

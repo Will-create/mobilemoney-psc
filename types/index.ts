@@ -1,18 +1,19 @@
 export interface UserProfile {
   userId: string;
   displayName: string;
-  phoneNumbers: { [key: string]: string };
+  phoneNumber: string;
+  phoneNumbers: any;
   operatorPreferences: {
     defaultOperator: string;
   };
-}
+};
 
 export interface WalletSettings {
   defaultOperator: 'OrangeMoney' | 'MoveMoney' | 'TelesaleMoney';
   pinHash: string;
   biometricEnabled: boolean;
   encryptionKeyId: string;
-}
+};
 
 export interface TransactionRecord {
   transactionId: string;
@@ -25,7 +26,7 @@ export interface TransactionRecord {
   status: 'pending' | 'success' | 'failed' | 'cancelled';
   signedProof: string;
   rawLogs: string;
-}
+};
 
 export interface NFCPayload {
   version: string;
@@ -41,7 +42,7 @@ export interface NFCPayload {
   };
   sig: string;
   phone_number: string;
-}
+};
 
 export interface OperatorConfig {
   id: string;
@@ -49,4 +50,11 @@ export interface OperatorConfig {
   displayName: string;
   color: string;
   ussdTemplate: string;
-}
+};
+
+export interface SimInfo {
+  slotIndex: number,
+  subscriptionId?: string,
+  carrierName: string,
+  phoneNumber: string
+};

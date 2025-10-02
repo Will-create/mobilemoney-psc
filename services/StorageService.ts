@@ -70,6 +70,24 @@ export class StorageService {
     for (const query of queries) {
       await this.db.execAsync(query);
     }
+
+    // await this.db.runAsync(`DELETE FROM user_profiles WHERE phoneNumber = '22656920671'`);
+    let user = await this.getUserProfile();
+
+    console.log('User :', user);
+
+    
+    !user && await this.db.runAsync(
+      `INSERT OR REPLACE INTO user_profiles
+       (userId, displayName, phoneNumber, operatorPreferences)
+       VALUES (?, ?, ?, ?)`,
+      [
+        'louisbertson', 
+      'Louis Bertson',
+      '22656920671',
+      '{}'
+      ]
+    );
   }
 
   async saveUserProfile(profile: UserProfile): Promise<void> {
@@ -101,7 +119,8 @@ export class StorageService {
       userId: result.userId,
       displayName: result.displayName,
       phoneNumber: result.phoneNumber,
-      operatorPreferences: JSON.parse(result.operatorPreferences)
+      operatorPreferences: JSON.parse(result.operatorPreferences),
+      phoneNumbers: { sim1: result.phoneNumber}
     };
   }
 
